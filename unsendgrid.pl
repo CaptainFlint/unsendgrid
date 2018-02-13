@@ -32,7 +32,7 @@ my $fsm = {
 		my ($fsm_state, $ln) = @_;
 		my $lns = ($ln =~ s/[\r\n]+//gr);
 		$fsm_state->{'data'} .= $ln;
-		if ($lns =~ m/^--/) {
+		if (($lns =~ m/^--/) && ($lns !~ m/--$/)) {
 			$fsm_state->{'pos'} = 'attach_hdrs';
 		}
 	},
