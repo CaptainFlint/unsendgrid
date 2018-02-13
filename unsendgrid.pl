@@ -5,6 +5,7 @@ use warnings;
 
 use FindBin;
 use File::Temp qw/tempfile/;
+use MIME::Base64;
 
 my ($sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst) = localtime();
 
@@ -14,24 +15,67 @@ close(F);
 
 exit(1) if -f $FindBin::Bin . '/stop';
 
-my $data = '';
-my $in_headers = 1;
-while (my $ln = <>) {
-	my $lns = ($ln =~ s/[\r\n]+//gr);
-	if ($lns eq '') {
-		$in_headers = 0;
-	}
-	if ($in_headers) {
-		my $x_sg_range = (($lns =~ m/^X-SG-EID: /) ... ($lns =~ m/^\S/));
+my $fsm = {
+	'hdrs' => sub ($$) {
+		my ($fsm_state, $ln) = @_;
+		my $lns = ($ln =~ s/[\r\n]+//gr);
 		# Skip X-SG-EID header
-		next if ($x_sg_range && ($x_sg_range !~ m/E0$/));
+		my $x_sg_range = (($lns =~ m/^X-SG-EID: /) ... ($lns =~ m/^\S/));
+		if (!($x_sg_range && ($x_sg_range !~ m/E0$/))) {
+			$fsm_state->{'data'} .= $ln;
+		}
+		if ($lns eq '') {
+			$fsm_state->{'pos'} = 'body';
+		}
+	},
+	'body' => sub ($$) {
+		my ($fsm_state, $ln) = @_;
+		my $lns = ($ln =~ s/[\r\n]+//gr);
+		$fsm_state->{'data'} .= $ln;
+		if ($lns =~ m/^--/) {
+			$fsm_state->{'pos'} = 'attach_hdrs';
+		}
+	},
+	'attach_hdrs' => sub ($$) {
+		my ($fsm_state, $ln) = @_;
+		my $lns = ($ln =~ s/[\r\n]+//gr);
+		$fsm_state->{'data'} .= $ln;
+		if ($lns eq '') {
+			$fsm_state->{'pos'} = 'attach_body';
+			$fsm_state->{'b64'} = '';
+		}
+	},
+	'attach_body' => sub ($$) {
+		my ($fsm_state, $ln) = @_;
+		my $lns = ($ln =~ s/[\r\n]+//gr);
+		$fsm_state->{'b64'} .= $lns;
+		if ($lns eq '') {
+			$fsm_state->{'pos'} = 'body';
+			$fsm_state->{'data'} .= unsendgrid($fsm_state->{'b64'}) . $ln;
+			$fsm_state->{'b64'} = '';
+		}
+	},
+};
+
+sub unsendgrid($) {
+	my ($src) = @_;
+	if ($src eq '') {
+		return '';
 	}
-	$data .= $ln;
+	my $msg = decode_base64($src);
+	$msg =~ s!https://[a-z0-9.]+\.sendgrid\.net/[^\'\"<>\s]*!https://UNSENDGRIDDED/!gs;
+	return encode_base64($msg);
 }
 
-print $data;
+my $fsm_state = {'pos' => 'hdrs', 'data' => ''};
+while (my $ln = <>) {
+	my $lns = ($ln =~ s/[\r\n]+//gr);
+	$fsm->{$fsm_state->{'pos'}}->($fsm_state, $ln);
+}
+
+print $fsm_state->{'data'};
 
 my $fileprefix = sprintf('mail-%04d%02d%02d-%02d%02d%02d-XXXXXX', $year + 1900, $mon + 1, $mday, $hour, $min, $sec);
 my ($fh, $filename) = tempfile($fileprefix, SUFFIX => '.eml', DIR => $FindBin::Bin . '/mail', UNLINK => 0);
-print $fh $data;
+print $fh $fsm_state->{'data'};
 close($fh);
