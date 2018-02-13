@@ -6,6 +6,7 @@ use warnings;
 use FindBin;
 use File::Temp qw/tempfile/;
 use MIME::Base64;
+use LWP::UserAgent;
 
 my ($sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst) = localtime();
 
@@ -51,19 +52,32 @@ my $fsm = {
 		$fsm_state->{'b64'} .= $lns;
 		if ($lns eq '') {
 			$fsm_state->{'pos'} = 'body';
-			$fsm_state->{'data'} .= unsendgrid($fsm_state->{'b64'}) . $ln;
+			$fsm_state->{'data'} .= unsendgrid_all($fsm_state->{'b64'}) . $ln;
 			$fsm_state->{'b64'} = '';
 		}
 	},
 };
 
-sub unsendgrid($) {
+my $ua = LWP::UserAgent->new('max_redirect' => 0, 'requests_redirectable' => [], 'timeout' => 10);
+
+sub unsendgrid_link($) {
+	my ($lnk) = @_;
+	my $resp = $ua->head($lnk);
+	if ($resp->is_redirect) {
+		return ($resp->header('Location') || $lnk);
+	}
+	else {
+		return $lnk;
+	}
+}
+
+sub unsendgrid_all($) {
 	my ($src) = @_;
 	if ($src eq '') {
 		return '';
 	}
 	my $msg = decode_base64($src);
-	$msg =~ s!https://[a-z0-9.]+\.sendgrid\.net/[^\'\"<>\s]*!https://UNSENDGRIDDED/!gs;
+	$msg =~ s!https://[a-z0-9.]+\.sendgrid\.net/[^\'\"<>\s]*!unsendgrid_link($&)!ges;
 	return encode_base64($msg);
 }
 
