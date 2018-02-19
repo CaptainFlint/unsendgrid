@@ -21,8 +21,17 @@ my $fsm = {
 		my ($fsm_state, $ln) = @_;
 		my $lns = ($ln =~ s/[\r\n]+//gr);
 		# Skip X-SG-EID header
+		# Important! This range includes the whole X-SG-EID plus the first line of the NEXT header
 		my $x_sg_range = (($lns =~ m/^X-SG-EID: /) ... ($lns =~ m/^\S/));
-		if (!($x_sg_range && ($x_sg_range !~ m/E0$/))) {
+		if ($x_sg_range && ($x_sg_range !~ m/E0$/)) {
+			# If inside the header (that is, inside the range, but not on the last line of it)...
+			if ($lns =~ m/^X-SG-EID: /) {
+				# ...and we are on the first line, add the replacement header
+				$fsm_state->{'data'} .= "X-SG-EID-Replacement: empty\r\n";
+			}
+		}
+		else {
+			# If we are outside the header just add the current line to output
 			$fsm_state->{'data'} .= $ln;
 		}
 		if ($lns eq '') {
