@@ -3,10 +3,11 @@
 use strict;
 use warnings;
 
+my $curl_exe = "C:/Programs/Git/mingw64/bin/curl.exe";
+
 use FindBin;
 use File::Temp qw/tempfile/;
 use MIME::Base64;
-use LWP::UserAgent;
 
 my ($sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst) = localtime();
 
@@ -67,27 +68,36 @@ my $fsm = {
 	},
 };
 
-my $ua = LWP::UserAgent->new('max_redirect' => 0, 'requests_redirectable' => [], 'timeout' => 10);
-
-sub unsendgrid_link($) {
-	my ($lnk) = @_;
-	my $resp = $ua->head($lnk);
-	if ($resp->is_redirect) {
-		return ($resp->header('Location') || $lnk);
-	}
-	else {
-		return $lnk;
-	}
-}
-
+# TODO: Check that the command line does not exceed 8192 symbols; split if it does.
 sub unsendgrid_all($) {
 	my ($src) = @_;
 	if ($src eq '') {
 		return '';
 	}
 	my $msg = decode_base64($src);
-	$msg =~ s!https://[a-z0-9.]+\.sendgrid\.net/[^\'\"<>\s]*!unsendgrid_link($&)!ges;
-	return encode_base64($msg);
+	# Extract all the SG links
+	my @msg_parts = split(m!(https://[a-z0-9.]+\.sendgrid\.net/wf/click[^\'\"<>\s]*)!, $msg);
+	# The links are regexp groups, so they are at odd places in the array (1, 3, 5...)
+	my $curl_cmdline = "\"$curl_exe\" -I";
+	for (my $i = 1; $i < scalar(@msg_parts); $i += 2) {
+		$curl_cmdline .= ' "' . $msg_parts[$i] . '"';
+	}
+	$curl_cmdline .= " 2>nul";
+	my @curl_out = `$curl_cmdline`;
+	my $i = -1;
+	for my $ln (@curl_out) {
+		$ln =~ s/[\r\n]+//g;
+		if ($ln =~ m/^HTTP\/\d+\.\d+/) {
+			# Response for the next URL
+			$i += 2;
+			next;
+		}
+		if ($ln =~ m/^Location:\s*(.*)/) {
+			$msg_parts[$i] = $1;
+			next;
+		}
+	}
+	return encode_base64(join('', @msg_parts));
 }
 
 my $fsm_state = {'pos' => 'hdrs', 'data' => ''};
