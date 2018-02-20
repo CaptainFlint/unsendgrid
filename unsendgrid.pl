@@ -4,6 +4,7 @@ use strict;
 use warnings;
 
 my $curl_exe = "C:/Programs/Git/mingw64/bin/curl.exe";
+my $curl_wrapped = "\"C:/Programs/CaptainFlintSW/hideconsole_hdls.exe\" \"$curl_exe\"";
 
 use FindBin;
 use File::Temp qw/tempfile/;
@@ -78,11 +79,10 @@ sub unsendgrid_all($) {
 	# Extract all the SG links
 	my @msg_parts = split(m!(https://[a-z0-9.]+\.sendgrid\.net/wf/click[^\'\"<>\s]*)!, $msg);
 	# The links are regexp groups, so they are at odd places in the array (1, 3, 5...)
-	my $curl_cmdline = "\"$curl_exe\" -I";
+	my $curl_cmdline = "$curl_wrapped -I";
 	for (my $i = 1; $i < scalar(@msg_parts); $i += 2) {
 		$curl_cmdline .= ' "' . $msg_parts[$i] . '"';
 	}
-	$curl_cmdline .= " 2>nul";
 	my @curl_out = `$curl_cmdline`;
 	my $i = -1;
 	for my $ln (@curl_out) {
@@ -97,18 +97,24 @@ sub unsendgrid_all($) {
 			next;
 		}
 	}
-	return encode_base64(join('', @msg_parts));
+	return encode_base64(join('', @msg_parts), "\r\n");
 }
 
+binmode(STDOUT);
+
 my $fsm_state = {'pos' => 'hdrs', 'data' => ''};
-while (my $ln = <>) {
-	my $lns = ($ln =~ s/[\r\n]+//gr);
+my $fin;
+open($fin, '<', $ARGV[0]) or die "Failed to open file '$ARGV[0]' for reading: $!";
+binmode($fin);
+while (my $ln = <$fin>) {
 	$fsm->{$fsm_state->{'pos'}}->($fsm_state, $ln);
 }
+close($fin);
 
 print $fsm_state->{'data'};
 
 my $fileprefix = sprintf('mail-%04d%02d%02d-%02d%02d%02d-XXXXXX', $year + 1900, $mon + 1, $mday, $hour, $min, $sec);
 my ($fh, $filename) = tempfile($fileprefix, SUFFIX => '.eml', DIR => $FindBin::Bin . '/mail', UNLINK => 0);
+binmode($fh);
 print $fh $fsm_state->{'data'};
 close($fh);
