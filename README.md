@@ -13,6 +13,10 @@ The Bat! offline E-mail client has ability to call external scripts to
 post-process E-mail messages. Unfortunately, it is not very user-friendly, but
 it works. I don't know about other clients, though.
 
+At the moment, the script can work only with base64-encoded text and HTML
+attachments (the primary target are RSDN forum E-mail notifications, tested only
+with them).
+
 ### Script installation and configuration
 
 * First of all, you need to install Perl on your machine. I tested this with
