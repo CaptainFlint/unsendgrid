@@ -13,28 +13,61 @@ The Bat! offline E-mail client has ability to call external scripts to
 post-process E-mail messages. Unfortunately, it is not very user-friendly, but
 it works. I don't know about other clients, though.
 
-### The Bat! configuration
+### Script installation and configuration
 
-**TODO**
+* First of all, you need to install Perl on your machine. I tested this with
+  ActivePerl 5.26.1.
+* Second, you need to get a binary `curl.exe`.
+* Finally, not required but recommended, some application that allows to run
+  console applications without showing the console window (otherwise console
+  will keep popping up for every processed message). I'm using my self-written
+  application [hideconsole_hdls](https://github.com/CaptainFlint/hideconsole_hdls).
+  Make sure the application redirects the target stdout into its own output.
 
-```
-$$$$ TB! Message Filter $$$$
-beginFilter
-UID: [4EC1DDA2.01D3A424.15D0827B.643A7C6B]
-Name: Anti-SendGrid
-Filter: {\0D\0A\20`7`X-SG-EID`2`.\0D\0A}
-RunExternal Wait ImportResult CmdLine C:\5CPrograms\5CPerl\5Cbin\5Cwperl.exe\20D:\5Cdevel\5CPerl\5Cunsendgrid\5Cunsendgrid.pl\20%1 folder \5C\5CGmail\5CInbox\5CRSDN
-IsActive
-Ignore
-endFilter
+Edit the `unsendgrid.pl` script and put the path to `curl.exe` into the variable
+`$curl_exe`, then update the `$curl_wrapped` variable to use the hideconsole
+program with correct parameters.
 
-$$$$ TB! Message Filter $$$$
-beginFilter
-UID: [EF0E5F5B.01D3A987.5AAF71A7.0947D848]
-Name: Anti-SendGrid-Post
-Filter: {\0D\0A\20`7`X-SG-EID-Replacement`2`.\0D\0A}
-MarkUnread
-IsActive
-Ignore
-endFilter
-```
+Now all you need to do is configure The Bat!
+
+Open the Sorting Office for the mailbox that receives the SG-scrambled mail and
+create two rules as follows (of course, this is just a template; you can specify
+any additional criteria or actions if you need):
+
+##### Rule 1:
+* Condition:
+  * Header field: `X-SG-EID` match: `.`
+* Actions:
+  * Run external action
+    * Command line: `C:\Perl\bin\wperl.exe C:\path\to\unsendgrid.pl %1`
+    * [ ] Hide the process
+    * [ ] Pass the message as the input stream (stdin)
+    * [X] Wait for completion
+      * [X] Import the process' stdout as an RFC 822 message if the process finishes normally
+      * Destination folder: _(specify here the folder you want)_
+  * Delete the message
+
+##### Rule 2:
+* Condition:
+  * Header field: `X-SG-EID-Replacement` match: `.`
+* Actions:
+  * Mark the message as unread
+
+**Explanations:**
+
+The first rule makes The Bat! run the **UnSendGrid** script for each message
+that has a non-empty header `X-SG-EID` (added by SG). The message will be saved
+into a temporary file and passed as command line argument to the script which
+will form a new mail message with unscrambled links and dump it into standard
+output. The Bat! then, according to the options specified, will fetch this
+output and import the resultant message into the mailbox. The original letter
+will then be deleted. You might want to hold off of that "Delete" action until
+you tested the script and rules thoroughly and made sure everything works as you
+want it to.
+
+The newly imported message is initially marked as read, and I could not find any
+option in The Bat! to mark it unread by default. So, I implemented a workaround:
+when the script deletes the `X-SG-EID` header from the message it adds a
+replacement header `X-SG-EID-Replacement` to distinguish the new messages. So,
+the second rule matches all mail with this new header and forcibly marks them
+as unread.
